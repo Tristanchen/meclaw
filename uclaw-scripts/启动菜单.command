@@ -442,13 +442,26 @@ do_china_channels() {
                     echo -e "  ${YELLOW}正在安装 QQ 插件...${NC}"
                     "$NODE_BIN" openclaw.mjs plugins install @sliverp/qqbot@latest 2>&1 || true
                     echo ""
-                    read -p "  请输入你的 AppID:AppSecret: " QQ_TOKEN
-                    if [ -n "$QQ_TOKEN" ]; then
-                        "$NODE_BIN" openclaw.mjs channels add --channel qqbot --token "$QQ_TOKEN" 2>&1 || true
-                        "$NODE_BIN" openclaw.mjs gateway restart 2>&1 || true
+                    echo -e "  ${WHITE}请输入 QQ 机器人信息（在 q.qq.com 后台查看）:${NC}"
+                    echo ""
+                    read -p "  AppID:  " QQ_APP_ID
+                    echo ""
+                    read -p "  AppSecret:  " QQ_APP_SECRET
+                    echo ""
+                    if [ -n "$QQ_APP_ID" ] && [ -n "$QQ_APP_SECRET" ]; then
+                        echo -e "  ${YELLOW}正在绑定 QQ 机器人...${NC}"
+                        "$NODE_BIN" openclaw.mjs channels add --channel qqbot --token "${QQ_APP_ID}:${QQ_APP_SECRET}" 2>&1 || true
+                        echo ""
+                        read -p "  请输入你自己的 QQ 号（设置白名单，留空跳过）: " QQ_ALLOW
+                        if [ -n "$QQ_ALLOW" ]; then
+                            "$NODE_BIN" openclaw.mjs config set channels.qqbot.allowFrom "\"${QQ_ALLOW}\"" 2>&1 || true
+                            echo -e "  ${GREEN}白名单已设置: 仅 QQ ${QQ_ALLOW} 可访问${NC}"
+                        fi
                         echo ""
                         echo -e "  ${GREEN}QQ 机器人配置完成！${NC}"
-                        echo -e "  ${YELLOW}记得设置白名单!${NC}"
+                        echo -e "  ${YELLOW}请重启网关后生效（主菜单选 [4] 或 [17]）${NC}"
+                    else
+                        echo -e "  ${YELLOW}已取消：AppID 或 AppSecret 为空。${NC}"
                     fi
                 fi
             fi
