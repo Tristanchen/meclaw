@@ -2,43 +2,59 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project Overview — CRITICAL MENTAL MODEL
 
-U-Claw wraps [OpenClaw](https://github.com/openclaw/openclaw) into two distribution forms: a USB portable version (bash/batch scripts + HTML config UI) and an Electron desktop app. Both share the same OpenClaw core dependency and Config.html interface. The repo contains only source code — runtime binaries (Node.js, node_modules, build artifacts) are downloaded at dev time and excluded from git.
+**This repo IS the USB drive content**, minus large dependencies. The relationship:
+
+```
+代码库（git）= U 盘骨架（脚本 + HTML + 小文件）
+     ↓ bash setup.sh
+完整文件夹 = U 盘内容（骨架 + Node.js + OpenClaw）
+     ↓ 拷贝到 U 盘
+U 盘 = 插上就能用
+```
+
+The repo is NOT a "build tool" or "generator" — it IS the USB structure. `setup.sh` only fills in large deps that can't go in git. After `setup.sh`, the `portable/` folder is directly copyable to a USB drive.
+
+Two distribution forms:
+1. **Portable USB** (`portable/`): Run from USB, zero install. The repo structure maps 1:1 to USB content.
+2. **Electron desktop app** (`u-claw-app/`): Install-to-computer version, packaged as DMG/EXE.
 
 ## Development Setup
 
 ```bash
-# Portable version
+# Portable version — after this, portable/ IS the USB content
 cd portable && bash setup.sh    # Downloads Node.js v22 + OpenClaw + QQ plugin to app/
 bash Mac-Start.command          # Launch (Mac ARM64 only currently)
 
+# Copy to USB drive
+cp -R portable/ /Volumes/YOUR_USB/U-Claw/
+
 # Electron desktop app
-cd u-claw-app
-npm install --registry=https://registry.npmmirror.com
-npm start                       # Dev mode (electron . --dev)
+cd u-claw-app && bash setup.sh  # One-click: Node.js + Electron + deps (China mirrors)
+npm run dev                     # Dev mode
 npm run build:mac-arm64         # Build Mac ARM64 DMG
 npm run build:win               # Build Windows NSIS + portable
 ```
 
-Testing should be done in a separate clone at `~/uclaw-dev/u-claw/`, not in this dev repo. This repo stays clean (no node_modules, no app/ runtime).
+Testing should be done in a separate clone at `~/uclaw-dev/u-claw/`, or directly on USB. This dev repo stays clean (no node_modules, no app/ runtime).
 
 ## Architecture
 
 ```
-portable/           Bash/Batch scripts + HTML pages
-                    Expects app/core/ (OpenClaw) and app/runtime/ (Node.js) at runtime
-                    Config stored in data/.openclaw/openclaw.json (relative, on USB)
+portable/           THE USB content (= repo + setup.sh downloads)
+                    Scripts, HTML pages, setup.sh
+                    app/core/ (OpenClaw) + app/runtime/ (Node.js) — downloaded by setup.sh
+                    data/.openclaw/openclaw.json — user config (on USB, portable)
+                    Mac-Install.command / Windows-Install.bat — install to computer from USB
 
-u-claw-app/         Electron app (main.js 419 lines)
+u-claw-app/         Electron desktop app (main.js ~400 lines)
+                    setup.sh / setup.bat for one-click dev environment
                     Bundles Node.js in resources/runtime/node-{platform}-{arch}
                     Config stored in app.getPath('userData')/.openclaw/
-                    Spawns openclaw.mjs gateway as child process
 
 website/            Static HTML deployed to u-claw.org via Vercel
                     vercel.json sets outputDirectory: "website"
-
-usb-scripts/        Extract U-Claw.tar.gz + launch (for USB distribution)
 ```
 
 Both portable and desktop versions auto-find a free port in range 18789–18799 and start the OpenClaw gateway. On first run, they detect whether a model is configured — if not, they open Config.html; otherwise, they open the dashboard.
