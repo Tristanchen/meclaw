@@ -32,35 +32,97 @@ echo ""
 
 # ---- Step 1: SSH ----
 echo -e "  [1/4] 检查 SSH ..."
+
+check_ssh() {
+    # macOS: netstat 检查; Linux: ss 或 netstat
+    if netstat -an 2>/dev/null | grep -q '\.22 .*LISTEN'; then return 0; fi
+    if ss -tlnp 2>/dev/null | grep -q ':22 '; then return 0; fi
+    # 备用: 直接连自己
+    if nc -z -w 2 127.0.0.1 22 2>/dev/null; then return 0; fi
+    return 1
+}
+
 if [[ "$(uname)" == "Darwin" ]]; then
-    # macOS: 开启远程登录
-    sudo systemsetup -setremotelogin on 2>/dev/null || true
+    # ---- macOS SSH 多种方式尝试 ----
+
+    if ! check_ssh; then
+        echo -e "${DIM}    尝试方式 1: systemsetup ...${NC}"
+        sudo systemsetup -setremotelogin on 2>/dev/null || true
+        sleep 1
+    fi
+
+    if ! check_ssh; then
+        echo -e "${DIM}    尝试方式 2: launchctl load ...${NC}"
+        sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
+        sleep 1
+    fi
+
+    if ! check_ssh; then
+        echo -e "${DIM}    尝试方式 3: launchctl enable + kickstart ...${NC}"
+        sudo launchctl enable system/com.openssh.sshd 2>/dev/null || true
+        sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+        sleep 1
+    fi
+
     # 确保密码认证开启（macOS Ventura+ 可能默认关闭）
     SSHD_CONFIG="/etc/ssh/sshd_config"
     if grep -q "^PasswordAuthentication no" "$SSHD_CONFIG" 2>/dev/null; then
-        echo -e "${YELLOW}  检测到 SSH 密码登录被禁用，正在开启...${NC}"
+        echo -e "${YELLOW}    检测到 SSH 密码登录被禁用，正在开启...${NC}"
         sudo sed -i '' 's/^PasswordAuthentication no/PasswordAuthentication yes/' "$SSHD_CONFIG"
-        sudo launchctl stop com.openssh.sshd 2>/dev/null || true
-        sudo launchctl start com.openssh.sshd 2>/dev/null || true
+        sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+        sleep 1
+    fi
+    # 同时检查 /etc/ssh/sshd_config.d/ 下的覆盖文件
+    for f in /etc/ssh/sshd_config.d/*.conf; do
+        if [ -f "$f" ] && grep -q "^PasswordAuthentication no" "$f" 2>/dev/null; then
+            echo -e "${YELLOW}    修复 $f 中的密码认证设置...${NC}"
+            sudo sed -i '' 's/^PasswordAuthentication no/PasswordAuthentication yes/' "$f"
+        fi
+    done
+
+    # 如果还是不行，引导用户手动操作（不退出，等待重试）
+    if ! check_ssh; then
+        echo ""
+        echo -e "${RED}  ╔══════════════════════════════════════════╗${NC}"
+        echo -e "${RED}  ║  SSH 未能自动开启，需要你手动操作（30秒）║${NC}"
+        echo -e "${RED}  ╚══════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${CYAN}  👉 操作步骤：${NC}"
+        echo -e "${BOLD}     1. 点左上角  → 系统设置${NC}"
+        echo -e "${BOLD}     2. 点「通用」→「共享」${NC}"
+        echo -e "${BOLD}     3. 找到「远程登录」→ 打开开关${NC}"
+        echo -e "${BOLD}     4. 回到这里按回车${NC}"
+        echo ""
+        echo -e -n "${YELLOW}  操作完成后按回车继续...${NC}"
+        read -r
+
+        # 再检查一次
+        sleep 1
+        if ! check_ssh; then
+            echo -e "${RED}  [!] SSH 仍未启动，请确认「远程登录」已打开${NC}"
+            echo -e -n "${YELLOW}  再试一次？按回车重新检测，输入 q 退出: ${NC}"
+            read -r RETRY
+            if [[ "$RETRY" == "q" ]]; then exit 1; fi
+            sleep 1
+            if ! check_ssh; then
+                echo -e "${RED}  [!] SSH 确实无法启动，请联系技术支持排查${NC}"
+                exit 1
+            fi
+        fi
     fi
 else
+    # ---- Linux ----
     sudo systemctl start sshd 2>/dev/null || sudo systemctl start ssh 2>/dev/null || {
         sudo apt-get install -y openssh-server 2>/dev/null || sudo yum install -y openssh-server 2>/dev/null
         sudo systemctl start sshd 2>/dev/null || sudo systemctl start ssh
     }
+    if ! check_ssh; then
+        echo -e "${RED}  [!] SSH 未能启动，请检查 sshd 服务${NC}"
+        exit 1
+    fi
 fi
 
-# 验证 SSH 真正在监听
-if ss -tlnp 2>/dev/null | grep -q ':22 ' || netstat -an 2>/dev/null | grep -q '\.22 .*LISTEN'; then
-    echo -e "${GREEN}  [OK] SSH 已启动并在监听端口 22${NC}"
-else
-    echo -e "${RED}  [!] SSH 未能成功启动${NC}"
-    if [[ "$(uname)" == "Darwin" ]]; then
-        echo -e "${YELLOW}  请手动开启: 系统设置 → 通用 → 共享 → 远程登录${NC}"
-    fi
-    echo -e "${YELLOW}  开启后重新运行本脚本${NC}"
-    exit 1
-fi
+echo -e "${GREEN}  [OK] SSH 已启动并在监听端口 22${NC}"
 
 # ---- Step 2: 检测本地 IP（局域网直连用）----
 echo ""
